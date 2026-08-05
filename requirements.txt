@@ -1,0 +1,13 @@
+%%writefile requirements.txt
+fastapi
+uvicorn
+langserve
+langchain
+langchain-core
+langchain-community
+langchain-google-genai
+langchain-text-splitters
+faiss-cpu
+google-generativeai
+pydantic>=2
+sse-starlette
