@@ -20,10 +20,10 @@ from langchain_community.vectorstores import FAISS
 # API Key
 # -------------------------------------------------------
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_APIKEY")
+GOOGLE_APIKEY = os.getenv("GOOGLE_APIKEY")
 
-if not GOOGLE_API_KEY:
-    raise ValueError("Set GOOGLE_APIKEY environment variable")
+if not GOOGLE_APIKEY:
+    raise ValueError("Set GOOGLE_API_KEY environment variable")
 
 # -------------------------------------------------------
 # LLM
