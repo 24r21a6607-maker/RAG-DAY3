@@ -1,4 +1,5 @@
 import os
+
 from fastapi import FastAPI
 from pydantic import BaseModel
 
@@ -14,40 +15,47 @@ from langchain_google_genai import (
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from google.colab import userdata
+
 
 # --------------------------------------------------
-# API Key
+# API Key from Render Environment Variable
 # --------------------------------------------------
 
-GOOGLE_APIKEY = userdata.get("GOOGLE_APIKEY")
+GOOGLE_APIKEY = os.getenv("GOOGLE_API_KEY")
 
 if not GOOGLE_APIKEY:
-    raise ValueError("GOOGLE_APIKEY environment variable not found in Colab Secrets.")
+    raise ValueError(
+        "GOOGLE_API_KEY environment variable is missing"
+    )
+
 
 # --------------------------------------------------
-# FastAPI
+# FastAPI App
 # --------------------------------------------------
 
-app = FastAPI(title="LangChain RAG API")
+app = FastAPI(
+    title="LangChain RAG API",
+    version="1.0"
+)
+
 
 # --------------------------------------------------
-# LLM
+# Gemini LLM
 # --------------------------------------------------
 
 llm = ChatGoogleGenerativeAI(
-    model="models/gemma-4-31b-it",
+    model="gemini-2.5-flash",
     google_api_key=GOOGLE_APIKEY,
 )
 
+
 # --------------------------------------------------
-# Sample Knowledge Base
-# Replace with PDF/Text/Database later
+# Knowledge Base
 # --------------------------------------------------
 
 text = """
-The Internet is a global system of interconnected computer networks that
-uses TCP/IP to communicate.
+The Internet is a global system of interconnected computer networks
+that uses TCP/IP to communicate.
 
 The origins of the Internet date back to ARPANET, a project funded by
 the United States Department of Defense.
@@ -56,17 +64,29 @@ ARPANET became operational in 1969 and laid the foundation for today's
 modern Internet.
 """
 
-documents = [Document(page_content=text)]
+
+documents = [
+    Document(
+        page_content=text,
+        metadata={"source": "internet_history"}
+    )
+]
+
+
+# --------------------------------------------------
+# Split Documents
+# --------------------------------------------------
 
 splitter = RecursiveCharacterTextSplitter(
     chunk_size=500,
-    chunk_overlap=50,
+    chunk_overlap=50
 )
 
 chunks = splitter.split_documents(documents)
 
+
 # --------------------------------------------------
-# Embeddings
+# Gemini Embeddings
 # --------------------------------------------------
 
 embeddings = GoogleGenerativeAIEmbeddings(
@@ -74,9 +94,21 @@ embeddings = GoogleGenerativeAIEmbeddings(
     google_api_key=GOOGLE_APIKEY,
 )
 
-vectorstore = FAISS.from_documents(chunks, embeddings)
 
-retriever = vectorstore.as_retriever(search_kwargs={"k": 2})
+# --------------------------------------------------
+# FAISS Vector Database
+# --------------------------------------------------
+
+vectorstore = FAISS.from_documents(
+    chunks,
+    embeddings
+)
+
+
+retriever = vectorstore.as_retriever(
+    search_kwargs={"k": 2}
+)
+
 
 # --------------------------------------------------
 # Prompt
@@ -86,22 +118,32 @@ prompt = ChatPromptTemplate.from_template(
     """
 You are a helpful assistant.
 
-Answer ONLY from the provided context.
+Answer only using the context.
+
+If the answer is not available, say:
+"I don't know."
 
 Context:
 {context}
 
 Question:
 {question}
+
+Answer:
 """
 )
+
 
 # --------------------------------------------------
 # RAG Chain
 # --------------------------------------------------
 
 def format_docs(docs):
-    return "\n\n".join(doc.page_content for doc in docs)
+    return "\n\n".join(
+        doc.page_content
+        for doc in docs
+    )
+
 
 rag_chain = (
     {
@@ -113,6 +155,7 @@ rag_chain = (
     | StrOutputParser()
 )
 
+
 # --------------------------------------------------
 # Request Model
 # --------------------------------------------------
@@ -120,15 +163,25 @@ rag_chain = (
 class QueryRequest(BaseModel):
     question: str
 
+
 # --------------------------------------------------
 # Routes
 # --------------------------------------------------
 
 @app.get("/")
 def root():
-    return {"message": "LangChain RAG API is running"}
+    return {
+        "message": "LangChain RAG API is running"
+    }
+
 
 @app.post("/chat")
 def chat(request: QueryRequest):
-    answer = rag_chain.invoke(request.question)
-    return {"answer": answer}
+
+    answer = rag_chain.invoke(
+        request.question
+    )
+
+    return {
+        "answer": answer
+    }
