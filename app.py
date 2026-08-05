@@ -1,7 +1,7 @@
 import os
 
 from fastapi import FastAPI
-from pydantic import BaseModel
+from langserve import add_routes
 
 from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
@@ -16,136 +16,84 @@ from langchain_google_genai import (
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 
+# -------------------------------------------------------
+# API Key
+# -------------------------------------------------------
 
-# --------------------------------------------------
-# API Key from Render Environment Variable
-# --------------------------------------------------
+GOOGLE_API_KEY = os.getenv("GOOGLE_APIKEY")
 
-GOOGLE_APIKEY = os.getenv("GOOGLE_API_KEY")
+if not GOOGLE_API_KEY:
+    raise ValueError("Set GOOGLE_APIKEY environment variable")
 
-if not GOOGLE_APIKEY:
-    raise ValueError(
-        "GOOGLE_API_KEY environment variable is missing"
-    )
-
-
-# --------------------------------------------------
-# FastAPI App
-# --------------------------------------------------
-
-app = FastAPI(
-    title="LangChain RAG API",
-    version="1.0"
-)
-
-
-# --------------------------------------------------
-# Gemini LLM
-# --------------------------------------------------
+# -------------------------------------------------------
+# LLM
+# -------------------------------------------------------
 
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-flash",
-    google_api_key=GOOGLE_APIKEY,
+    google_api_key=os.getenv("GOOGLE_APIKEY")
 )
-
-
-# --------------------------------------------------
-# Knowledge Base
-# --------------------------------------------------
+# -------------------------------------------------------
+# Documents
+# -------------------------------------------------------
 
 text = """
 The Internet is a global system of interconnected computer networks
-that uses TCP/IP to communicate.
+that uses the Internet protocol suite (TCP/IP).
 
-The origins of the Internet date back to ARPANET, a project funded by
-the United States Department of Defense.
+ARPANET was the first precursor of the modern Internet.
 
-ARPANET became operational in 1969 and laid the foundation for today's
-modern Internet.
+The National Science Foundation Network (NSFNET)
+expanded Internet access during the 1980s.
+
+Commercial Internet Service Providers made the
+Internet available to the public in the early 1990s.
 """
 
-
-documents = [
-    Document(
-        page_content=text,
-        metadata={"source": "internet_history"}
-    )
-]
-
-
-# --------------------------------------------------
-# Split Documents
-# --------------------------------------------------
+docs = [Document(page_content=text)]
 
 splitter = RecursiveCharacterTextSplitter(
     chunk_size=500,
-    chunk_overlap=50
+    chunk_overlap=50,
 )
 
-chunks = splitter.split_documents(documents)
+splits = splitter.split_documents(docs)
 
-
-# --------------------------------------------------
-# Gemini Embeddings
-# --------------------------------------------------
+# -------------------------------------------------------
+# Embeddings
+# -------------------------------------------------------
 
 embeddings = GoogleGenerativeAIEmbeddings(
     model="models/gemini-embedding-001",
     google_api_key=GOOGLE_APIKEY,
 )
 
+vectorstore = FAISS.from_documents(splits, embeddings)
 
-# --------------------------------------------------
-# FAISS Vector Database
-# --------------------------------------------------
+retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
-vectorstore = FAISS.from_documents(
-    chunks,
-    embeddings
-)
-
-
-retriever = vectorstore.as_retriever(
-    search_kwargs={"k": 2}
-)
-
-
-# --------------------------------------------------
+# -------------------------------------------------------
 # Prompt
-# --------------------------------------------------
+# -------------------------------------------------------
 
 prompt = ChatPromptTemplate.from_template(
     """
-You are a helpful assistant.
-
-Answer only using the context.
-
-If the answer is not available, say:
-"I don't know."
+Answer the question only using the provided context.
 
 Context:
 {context}
 
 Question:
 {question}
-
-Answer:
 """
 )
 
 
-# --------------------------------------------------
-# RAG Chain
-# --------------------------------------------------
-
 def format_docs(docs):
-    return "\n\n".join(
-        doc.page_content
-        for doc in docs
-    )
+    return "\n\n".join(doc.page_content for doc in docs)
 
 
-rag_chain = (
+chain = (
     {
         "context": retriever | format_docs,
         "question": RunnablePassthrough(),
@@ -155,33 +103,27 @@ rag_chain = (
     | StrOutputParser()
 )
 
+# -------------------------------------------------------
+# FastAPI
+# -------------------------------------------------------
 
-# --------------------------------------------------
-# Request Model
-# --------------------------------------------------
+app = FastAPI(
+    title="LangServe RAG API",
+    version="1.0",
+    description="RAG API using LangServe + Gemini",
+)
 
-class QueryRequest(BaseModel):
-    question: str
-
-
-# --------------------------------------------------
-# Routes
-# --------------------------------------------------
+add_routes(
+    app,
+    chain,
+    path="/rag",
+)
 
 @app.get("/")
-def root():
+def home():
     return {
-        "message": "LangChain RAG API is running"
-    }
-
-
-@app.post("/chat")
-def chat(request: QueryRequest):
-
-    answer = rag_chain.invoke(
-        request.question
-    )
-
-    return {
-        "answer": answer
+        "message": "LangServe is running!",
+        "playground": "/rag/playground",
+        "invoke": "/rag/invoke",
+        "stream": "/rag/stream",
     }
